@@ -503,6 +503,16 @@ static const int32_t gDeviceCfgGnssI2cAlreadyOpen[] = {
                                  i2c_already_open)
 };
 
+/** Get whether the "i2c-max-segment-size" property is set for each
+ * ubxlib-device-gnss compatible device, in the order they
+ * appear in the device tree.
+ */
+static const int32_t gDeviceCfgGnssI2cMaxSegmentSize[] = {
+    DT_FOREACH_STATUS_OKAY_VARGS(u_blox_ubxlib_device_gnss,
+                                 U_PORT_BOARD_CFG_GET_INT,
+                                 i2c_max_segment_size)
+};
+
 /** The "spi-pin-select" of each of the ubxlib-device-gnss
  * compatible devices, or -1 where not present, in the order they
  * appear in the device tree.
@@ -1102,15 +1112,19 @@ static void cfgGnss(uDeviceCfg_t *pCfg, int32_t index)
             uDeviceCfgI2c_t *pCfgI2c = &(pCfg->transportCfg.cfgI2c);
             memset(pCfgI2c, 0, sizeof(*pCfgI2c));
             pCfgGnss->i2cAddress = (uint16_t) gDeviceCfgGnssI2cAddress[index];
+            pCfgI2c->version = 1;
             pCfgI2c->i2c = x;
             pCfgI2c->clockHertz = gDeviceCfgGnssI2cClockHertz[index];
             pCfgI2c->alreadyOpen = gDeviceCfgGnssI2cAlreadyOpen[index];
+            pCfgI2c->maxSegmentSize = gDeviceCfgGnssI2cMaxSegmentSize[index];
             pCfgI2c->pinSda = -1;
             pCfgI2c->pinScl = -1;
-            uPortLog("U_PORT_BOARD_CFG: ...GNSS on I2C %d, i2c-address %d, i2c-clock-hertz %d%s.\n",
+            uPortLog("U_PORT_BOARD_CFG: ...GNSS on I2C %d, i2c-address %d, i2c-clock-hertz %d, i2c-max-segment-size: %d%s.\n",
                      pCfgI2c->i2c, pCfgGnss->i2cAddress,
                      pCfgI2c->clockHertz,
-                     pCfgI2c->alreadyOpen ? ", i2c-already-open" : "");
+                     pCfgI2c->maxSegmentSize,
+                     pCfgI2c->alreadyOpen ? ", i2c-already-open" : ""
+                     );
         }
         break;
         case U_DEVICE_TRANSPORT_TYPE_SPI: {

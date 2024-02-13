@@ -226,6 +226,13 @@ typedef struct {
        against it might end with the clause "; if this
        field is populated then the version field of
        this structure must be set to 1 or higher". */
+    uint32_t maxSegmentSize;    /**< If this field is populated version field 
+                                     of the structure must be set to 1.
+                                     This field contains the maximum transfer
+                                     size for I2C, if set to 0 the whole message
+                                     will be transfered in one transaction, regardless
+                                     of its size. Otherwise it will be split into
+                                     multiple transactions of size maxSegmentSize*/
 } uDeviceCfgI2c_t;
 
 /* NOTE TO MAINTAINERS: if you change this structure you may

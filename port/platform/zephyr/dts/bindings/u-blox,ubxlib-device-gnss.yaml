@@ -26,6 +26,9 @@ properties:
     i2c-already-open:
         type: boolean
         description: "If transport is I2C you may specify this to indicate that the application has already opened the I2C port and this code need do nothing (in which case i2c-clock will be ignored)."
+    i2c-max-segment-size:
+        type: int
+        description: "Maximum size of an I2C read/write transaction performed by the library"
 # pinSelect for SPI
     spi-pin-select:
         type: int

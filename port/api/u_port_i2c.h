@@ -222,6 +222,25 @@ int32_t uPortI2cSetTimeout(int32_t handle, int32_t timeoutMs);
  */
 int32_t uPortI2cGetTimeout(int32_t handle);
 
+/** Set the maximum segment size for an I2C transaction
+ * 
+ * Setting segment size to 0 means that each message is sent in a
+ * single I2C transition.
+ * 
+ * @param handle     the handle of the I2C instance.
+ * @param maxSegmentSize maximum segment size in bytes
+ * @return int32_t zero or negative error code
+ */
+int32_t uPortI2cSetMaxSegmentSize(int32_t handle, int32_t maxSegmentSize);
+
+/** Get the maximum segment size for an I2C transaction
+ *  
+ * @param handle     the handle of the I2C instance.
+ * @return int32_t segment size or negative error code
+ */
+int32_t uPortI2cGetMaxSegmentSize(int32_t handle);
+
+
 /** Send and/or receive over the I2C interface as a controller.
  * Note that the NRF52 and NRF53 chips require all buffers to
  * be in RAM.

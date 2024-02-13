@@ -175,6 +175,14 @@ int32_t uDevicePrivateI2cOpen(const uDeviceCfgI2c_t *pCfgI2c)
                     }
                 }
             }
+            if ((errorCodeOrI2cHandle >= 0) && (pCfgI2c->maxSegmentSize > 0)) {
+                x = uPortI2cSetMaxSegmentSize(errorCodeOrI2cHandle, pCfgI2c->maxSegmentSize);
+                if (x < 0) {
+                    // Clean up on error
+                    uPortI2cClose(errorCodeOrI2cHandle);
+                    errorCodeOrI2cHandle = x;
+                }
+            }
             if (errorCodeOrI2cHandle >= 0) {
                 // Find a free entry in the list and put the I2C HW
                 // block and handle there, setting the openCount to 1

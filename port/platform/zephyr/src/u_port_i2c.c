@@ -47,6 +47,8 @@
 #include "u_cfg_os_platform_specific.h"
 #include "u_port_i2c.h"
 
+#include "u_assert.h"
+
 /* ----------------------------------------------------------------
  * COMPILE-TIME MACROS
  * -------------------------------------------------------------- */
@@ -68,6 +70,11 @@
 # define I2C_MODE_CONTROLLER I2C_MODE_MASTER
 #endif
 
+#define U_PORT_I2C_MAX_TRANSFER_SIZE    128
+#ifndef U_PORT_I2C_MAX_TRANSFER_SIZE
+#define U_PORT_I2C_MAX_TRANSFER_SIZE    ((uint32_t)-1)
+#endif
+
 /* ----------------------------------------------------------------
  * TYPES
  * -------------------------------------------------------------- */
@@ -78,6 +85,7 @@ typedef struct {
     const struct device *pDevice;
     int32_t clockHertz;
     bool adopted;
+    int32_t maxSegmentSize;
 } uPortI2cData_t;
 
 /* ----------------------------------------------------------------
@@ -176,6 +184,7 @@ static int32_t openI2c(int32_t i2c, int32_t pinSda, int32_t pinSdc,
                 // to flag that it is in use
                 gI2cData[i2c].pDevice = pDevice;
                 gI2cData[i2c].adopted = adopt;
+                gI2cData[i2c].maxSegmentSize = 0;
                 U_ATOMIC_INCREMENT(&gResourceAllocCount);
                 // Return the I2C HW block number as the handle
                 handleOrErrorCode = i2c;
@@ -361,6 +370,44 @@ int32_t uPortI2cGetTimeout(int32_t handle)
     return (int32_t) U_ERROR_COMMON_NOT_SUPPORTED;;
 }
 
+// Set the maximum segment size for I2C.
+int32_t uPortI2cSetMaxSegmentSize(int32_t handle, int32_t maxSegmentSize)
+{
+    int32_t errorCode = (int32_t) U_ERROR_COMMON_NOT_INITIALISED;
+
+    if (gMutex != NULL) {
+        U_PORT_MUTEX_LOCK(gMutex);
+
+        errorCode = (int32_t) U_ERROR_COMMON_INVALID_PARAMETER;
+        if ((handle >= 0) && (handle < sizeof(gI2cData) / sizeof(gI2cData[0]))) {
+            gI2cData[handle].maxSegmentSize=maxSegmentSize;
+            errorCode = 0;            
+        }
+
+        U_PORT_MUTEX_UNLOCK(gMutex);
+    }
+    return errorCode;
+}
+
+// Get the maximum segment size for I2C.
+int32_t uPortI2cGetMaxSegmentSize(int32_t handle)
+{
+    int32_t errorCodeOrLength = (int32_t) U_ERROR_COMMON_NOT_INITIALISED;
+
+    if (gMutex != NULL) {
+        U_PORT_MUTEX_LOCK(gMutex);
+        
+        errorCodeOrLength = (int32_t) U_ERROR_COMMON_INVALID_PARAMETER;
+        if ((handle >= 0) && (handle < sizeof(gI2cData) / sizeof(gI2cData[0]))) {
+            errorCodeOrLength = gI2cData[handle].maxSegmentSize;
+        }
+
+        U_PORT_MUTEX_UNLOCK(gMutex);
+    }
+    return errorCodeOrLength;
+}
+
+
 // Send and/or receive over the I2C interface as a controller.
 int32_t uPortI2cControllerSendReceive(int32_t handle, uint16_t address,
                                       const char *pSend, size_t bytesToSend,
@@ -368,8 +415,11 @@ int32_t uPortI2cControllerSendReceive(int32_t handle, uint16_t address,
 {
     int32_t errorCodeOrLength = (int32_t) U_ERROR_COMMON_NOT_INITIALISED;
     const struct device *pDevice = NULL;
-    struct i2c_msg message[2];
-    size_t x = 0;
+    struct i2c_msg message;
+    
+    // ATM GNSS does not use send/receive, this is a receive-only function
+    U_ASSERT(pSend==NULL);
+    U_ASSERT(pReceive!=NULL);
 
     if (gMutex != NULL) {
 
@@ -381,38 +431,30 @@ int32_t uPortI2cControllerSendReceive(int32_t handle, uint16_t address,
             ((pSend != NULL) || (bytesToSend == 0)) &&
             ((pReceive != NULL) || (bytesToReceive == 0))) {
             pDevice = gI2cData[handle].pDevice;
-            errorCodeOrLength = (int32_t) U_ERROR_COMMON_DEVICE_ERROR;
-            if (pSend != NULL) {
-                message[x].buf = (uint8_t *) pSend;
-                message[x].len = (uint32_t) bytesToSend;
-                message[x].flags = I2C_MSG_WRITE;
-                if (address > 127) {
-                    message[x].flags |= I2C_MSG_ADDR_10_BITS;
-                }
-                if (pReceive == NULL) {
-                    // If there's nothing to receive then add a stop marker
-                    // at the end of the message
-                    message[x].flags |= I2C_MSG_STOP;
-                }
-                x++;
-            }
-            if (pReceive != NULL) {
-                message[x].buf = (uint8_t *) pReceive;
-                message[x].len = (uint32_t) bytesToReceive;
+            int32_t maxSegmentSize = (gI2cData[handle].maxSegmentSize == 0)? INT_MAX:gI2cData[handle].maxSegmentSize;
+            errorCodeOrLength = (int32_t) bytesToReceive;
+
+            while (bytesToReceive>0) {
+                int32_t transfer_size = MIN(maxSegmentSize,bytesToReceive);
+
+                message.buf = (uint8_t *) pReceive;
+                message.len = (uint32_t) transfer_size;
                 // We're definitely stopping after this message
-                message[x].flags = I2C_MSG_READ | I2C_MSG_STOP;
+                message.flags = I2C_MSG_READ | I2C_MSG_STOP;
                 if (address > 127) {
-                    message[x].flags |= I2C_MSG_ADDR_10_BITS;
+                    message.flags |= I2C_MSG_ADDR_10_BITS;
                 }
                 // If something was sent, make sure that there is
                 // a start marker at the front of the message
                 if (pSend != NULL) {
-                    message[x].flags |= I2C_MSG_RESTART;
+                    message.flags |= I2C_MSG_RESTART;
                 }
-                x++;
-            }
-            if (i2c_transfer(pDevice, message, (uint8_t) x, address) == 0) {
-                errorCodeOrLength = (int32_t) bytesToReceive;
+                if (i2c_transfer(pDevice, &message, 1, address) != 0) {
+                    errorCodeOrLength = (int32_t) U_ERROR_COMMON_DEVICE_ERROR;
+                    break;
+                }
+                bytesToReceive -= transfer_size;
+                pReceive = ((uint8_t*)pReceive) + transfer_size;
             }
         }
 
@@ -440,18 +482,28 @@ int32_t uPortI2cControllerSend(int32_t handle, uint16_t address,
             (gI2cData[handle].pDevice != NULL) &&
             ((pSend != NULL) || (bytesToSend == 0))) {
             pDevice = gI2cData[handle].pDevice;
-            errorCode = (int32_t) U_ERROR_COMMON_DEVICE_ERROR;
-            message.buf = (uint8_t *) pSend;
-            message.len = (uint32_t) bytesToSend;
-            message.flags = I2C_MSG_WRITE;
-            if (address > 127) {
-                message.flags |= I2C_MSG_ADDR_10_BITS;
-            }
-            if (!noStop) {
-                message.flags |= I2C_MSG_STOP;
-            }
-            if (i2c_transfer(pDevice, &message, 1, address) == 0) {
-                errorCode = (int32_t) U_ERROR_COMMON_SUCCESS;
+            int32_t maxSegmentSize = (gI2cData[handle].maxSegmentSize == 0)? INT_MAX:gI2cData[handle].maxSegmentSize;
+            errorCode = (int32_t) U_ERROR_COMMON_SUCCESS;
+            
+            while (bytesToSend>0) {
+                int32_t transfer_size = MIN(maxSegmentSize,bytesToSend);
+
+                message.buf = (uint8_t *) pSend;
+                message.len = (uint32_t) transfer_size;
+                message.flags = I2C_MSG_WRITE;
+                if (address > 127) {
+                    message.flags |= I2C_MSG_ADDR_10_BITS;
+                }
+                if (!noStop) {
+                    message.flags |= I2C_MSG_STOP;
+                }
+                if (i2c_transfer(pDevice, &message, 1, address) != 0) {
+                    errorCode = (int32_t) U_ERROR_COMMON_DEVICE_ERROR;
+                    break;
+                }
+
+                bytesToSend -= transfer_size;
+                pSend = ((uint8_t*)pSend)+transfer_size;
             }
         }
 
